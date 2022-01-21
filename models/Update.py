@@ -1,5 +1,4 @@
 # Modified from: https://github.com/pliang279/LG-FedAvg/blob/master/models/Update.py
-# credit goes to: Paul Pu Liang
 
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
@@ -19,15 +18,6 @@ from models.language_utils import get_word_emb_arr, repackage_hidden, process_x,
 import itertools
 import torch.nn.functional as F
 
-# brianzhao 1220
-def compute_D_cuda(t1, t2):
-    # print((t1 - t2).pow(2))
-    # print((t1-t2).pow(2).sum())
-    d = np.linalg.norm(t1-t2)
-    # d = np.linalg.norm(t1-t2, ord=1)
-    # print(d.device)
-    return float(d)
-
 class DatasetSplit(Dataset):
     def __init__(self, dataset, idxs, name=None, pseudo_label=None):
         self.dataset = dataset
@@ -37,19 +27,6 @@ class DatasetSplit(Dataset):
 
     def __len__(self):
         return len(self.idxs)
-
-    # def __getitem__(self, item):
-    #     if self.name is None:
-    #         image, label = self.dataset[self.idxs[item]]
-    #     elif 'femnist' in self.name:
-    #         image = torch.reshape(torch.tensor(self.dataset['x'][item]),(1,28,28))
-    #         label = torch.tensor(self.dataset['y'][item])
-    #     elif 'sent140' in self.name:
-    #         image = self.dataset['x'][item]
-    #         label = self.dataset['y'][item]
-    #     else:
-    #         image, label = self.dataset[self.idxs[item]]
-    #     return image, label
 
     def __getitem__(self, item):
         if self.name is None:
@@ -552,143 +529,7 @@ class LocalUpdateDitto(object):
                 break
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
 
-# # brianzhao 1221 change train rank
-# class LocalUpdate1202(object):
-#     def __init__(self, args, dataset=None, idxs=None, indd=None):
-#         self.args = args
-#         self.loss_func = nn.CrossEntropyLoss()
-#         if 'femnist' in args.dataset or 'sent140' in args.dataset:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, np.ones(len(dataset['x'])), name=self.args.dataset),
-#                                         batch_size=self.args.local_bs, shuffle=True)
-#         else:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
-#
-#         if 'sent140' in self.args.dataset and indd == None:
-#             VOCAB_DIR = 'models/embs.json'
-#             _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
-#             self.vocab_size = len(vocab)
-#         elif indd is not None:
-#             self.indd = indd
-#         else:
-#             self.indd = None
-#
-#         self.dataset = dataset
-#         self.idxs = idxs
-#
-#     # brianzhao 1220 lamda=0.5-->1
-#     def train(self, net, w_glob_keys, last=False, dataset_test=None, ind=-1, idx=-1, lr=0.1, lamda=0.5, alpha=0.3, uk=[], global_param=0):
-#         bias_p = []
-#         weight_p = []
-#         for name, p in net.named_parameters():
-#             if 'bias' in name:
-#                 bias_p += [p]
-#             else:
-#                 weight_p += [p]
-#         optimizer = torch.optim.SGD(
-#             [
-#                 {'params': weight_p, 'weight_decay': 0.0001},
-#                 {'params': bias_p, 'weight_decay': 0}
-#             ],
-#             lr=lr, momentum=0.5
-#         )
-#         if self.args.alg == 'prox':
-#             optimizer = FedProx.FedProx(net.parameters(),
-#                                         lr=lr,
-#                                         gmf=self.args.gmf,
-#                                         mu=self.args.mu,
-#                                         ratio=1 / self.args.num_users,
-#                                         momentum=0.5,
-#                                         nesterov=False,
-#                                         weight_decay=1e-4)
-#
-#         local_eps = self.args.local_ep
-#         if last:
-#             if self.args.alg == 'fedavg' or self.args.alg == 'prox':
-#                 local_eps = 10
-#                 net_keys = [*net.state_dict().keys()]
-#                 if 'cifar' in self.args.dataset:
-#                     w_glob_keys = [net.weight_keys[i] for i in [4, 3, 0, 1]]
-#                 elif 'sent140' in self.args.dataset:
-#                     w_glob_keys = [net_keys[i] for i in [0, 1, 2, 3, 4, 5]]
-#                 elif 'mnist' in self.args.dataset:
-#                     w_glob_keys = [net.weight_keys[i] for i in [0, 1, 2]]
-#             elif 'maml' in self.args.alg:
-#                 local_eps = 5
-#                 w_glob_keys = []
-#             else:
-#                 local_eps = max(10, local_eps - self.args.local_rep_ep)
-#
-#         head_eps = local_eps - self.args.local_rep_ep
-#         epoch_loss = []
-#         num_updates = 0
-#         if 'sent140' in self.args.dataset:
-#             hidden_train = net.init_hidden(self.args.local_bs)
-#         if global_param:
-#             for name, param in net.named_parameters():
-#                 param.requires_grad = True
-#         for iter in range(local_eps):
-#             done = False
-#             if not global_param:
-#                 # brianzhao 1221
-#                 if (iter < self.args.local_rep_ep and self.args.alg == 'fedrep'):
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = True
-#                         else:
-#                             param.requires_grad = False
-#                 else:
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = False
-#                         else:
-#                             param.requires_grad = True
-#
-#             batch_loss = []
-#             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-#                 # 训练global层时加入正则化
-#                 if len(uk) > 0 and iter < self.args.local_rep_ep:
-#                     wk_tmp = []
-#                     for k in net.state_dict().keys():
-#                         if k in w_glob_keys:
-#                             wk_tmp.append(net.state_dict()[k])
-#                     w_k = np.array(list(itertools.chain.from_iterable([np.array(i.cpu()).reshape(-1) for i in wk_tmp])))
-#                     regular = lamda * compute_D_cuda(w_k, uk)
-#                 else:
-#                     regular = 0
-#                     # print("regular == ", regular)
-#                 if 'sent140' in self.args.dataset:
-#                     input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-#                     if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-#                         break
-#                     net.train()
-#                     data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-#                         self.args.device)
-#                     net.zero_grad()
-#                     hidden_train = repackage_hidden(hidden_train)
-#                     output, hidden_train = net(data, hidden_train)
-#                     loss = self.loss_func(output.t(), torch.max(targets, 1)[1]) + regular
-#                     loss.backward()
-#                     optimizer.step()
-#                 else:
-#                     images, labels = images.to(self.args.device), labels.to(self.args.device)
-#                     net.zero_grad()
-#                     log_probs = net(images)
-#                     loss = self.loss_func(log_probs, labels) + regular
-#                     loss.backward()
-#                     optimizer.step()
-#                 num_updates += 1
-#                 batch_loss.append(loss.item())
-#                 if num_updates == self.args.local_updates:
-#                     done = True
-#                     break
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#             if done:
-#                 break
-#
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-class LocalUpdate1202(object):
+class LocalUpdate(object):
     def __init__(self, args, dataset=None, idxs=None, indd=None):
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
@@ -699,7 +540,7 @@ class LocalUpdate1202(object):
             self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
 
         if 'sent140' in self.args.dataset and indd == None:
-            VOCAB_DIR = '/home/FedRep/models/embs.json'
+            VOCAB_DIR = './models/embs.json'
             _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
             self.vocab_size = len(vocab)
         elif indd is not None:
@@ -710,8 +551,7 @@ class LocalUpdate1202(object):
         self.dataset = dataset
         self.idxs = idxs
 
-    # brianzhao 1220 lamda=0.5-->1
-    def train(self, net, w_glob_keys, last=False, dataset_test=None, ind=-1, idx=-1, lr=0.1, lamda=0.5, alpha=0.3, uk=[], global_param=0):
+    def train(self, net, w_glob_keys, last=False, lr=0.1):
         bias_p = []
         weight_p = []
         for name, p in net.named_parameters():
@@ -758,150 +598,31 @@ class LocalUpdate1202(object):
         num_updates = 0
         if 'sent140' in self.args.dataset:
             hidden_train = net.init_hidden(self.args.local_bs)
-        if global_param:
-            for name, param in net.named_parameters():
-                param.requires_grad = True
         for iter in range(local_eps):
             done = False
-            if not global_param:
-                # for FedRep, first do local epochs for the head
-                if (iter < head_eps and self.args.alg == 'fedrep') or last:
-                    for name, param in net.named_parameters():
-                        if name in w_glob_keys:
-                            param.requires_grad = False
-                        else:
-                            param.requires_grad = True
-
-                # then do local epochs for the representation
-                elif iter == head_eps and self.args.alg == 'fedrep' and not last:
-                    for name, param in net.named_parameters():
-                        if name in w_glob_keys:
-                            param.requires_grad = True
-                        else:
-                            param.requires_grad = False
-
-                # all other methods update all parameters simultaneously
-                elif self.args.alg != 'fedrep':
-                    for name, param in net.named_parameters():
+            # for FedBKD, first do local epochs for the head
+            if (iter < head_eps and self.args.alg == 'fedbkd') or last:
+                for name, param in net.named_parameters():
+                    if name in w_glob_keys:
+                        param.requires_grad = False
+                    else:
                         param.requires_grad = True
 
-            batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                # 训练global层时加入正则化
-                if len(uk) > 0 and iter >= head_eps:
-                    wk_tmp = []
-                    for k in net.state_dict().keys():
-                        if k in w_glob_keys:
-                            wk_tmp.append(net.state_dict()[k])
-                    w_k = np.array(list(itertools.chain.from_iterable([np.array(i.cpu()).reshape(-1) for i in wk_tmp])))
-                    regular = lamda * compute_D_cuda(w_k, uk)
-                else:
-                    regular = 0
-                    # print("regular == ", regular)
-                if 'sent140' in self.args.dataset:
-                    input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-                    if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-                        break
-                    net.train()
-                    data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-                        self.args.device)
-                    net.zero_grad()
-                    hidden_train = repackage_hidden(hidden_train)
-                    output, hidden_train = net(data, hidden_train)
-                    loss = self.loss_func(output.t(), torch.max(targets, 1)[1]) + regular
-                    loss.backward()
-                    optimizer.step()
-                else:
-                    images, labels = images.to(self.args.device), labels.to(self.args.device)
-                    net.zero_grad()
-                    log_probs = net(images)
-                    loss = self.loss_func(log_probs, labels) + regular
-                    loss.backward()
-                    optimizer.step()
-                num_updates += 1
-                batch_loss.append(loss.item())
-                if num_updates == self.args.local_updates:
-                    done = True
-                    break
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-            if done:
-                break
+            # then do local epochs for the representation
+            elif iter == head_eps and self.args.alg == 'fedbkd' and not last:
+                for name, param in net.named_parameters():
+                    if name in w_glob_keys:
+                        param.requires_grad = True
+                    else:
+                        param.requires_grad = False
 
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-
-class LocalUpdateGlobal(object):
-    def __init__(self, args, dataset=None, idxs=None, indd=None, pseudo_label=None):
-        self.args = args
-        if 'femnist' in args.dataset or 'sent140' in args.dataset:
-            self.ldr_train = DataLoader(DatasetSplit(dataset, np.ones(len(dataset['x'])), name=self.args.dataset),
-                                        batch_size=args.local_bs, shuffle=False)
-        else:
-            self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, pseudo_label=pseudo_label), batch_size=self.args.local_bs, shuffle=False)
-
-        if 'sent140' in self.args.dataset and indd == None:
-            VOCAB_DIR = 'models/embs.json'
-            _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
-            self.vocab_size = len(vocab)
-        elif indd is not None:
-            self.indd = indd
-        else:
-            self.indd = None
-
-        self.dataset = dataset
-        self.idxs = idxs
-        self.pseudo_label = pseudo_label
-
-    def loss_func(self, p_logit, q_logit):
-        p = F.softmax(p_logit, dim=-1)
-        _kl = torch.sum(p * (F.log_softmax(p_logit, dim=-1) - F.log_softmax(q_logit, dim=-1)), 1)
-        # return torch.sum(_kl)
-        return torch.mean(_kl)
-
-    def train(self, net_per, w_glob_keys, last=False, dataset_test=None, lr=0.1, w_locals=None, idx=None):
-        # lr = 0.1
-        net = copy.deepcopy(net_per)
-        w_local = {}
-        for k in w_locals[idx].keys():
-            if k in w_glob_keys:
-                w_local[k] = w_locals[idx][k]
-        net.load_state_dict(w_local)
-        bias_p = []
-        weight_p = []
-        for name, p in net.named_parameters():
-            if 'bias' in name:
-                bias_p += [p]
-            else:
-                weight_p += [p]
-        optimizer = torch.optim.SGD(
-            [
-                {'params': weight_p, 'weight_decay': 0.0001},
-                {'params': bias_p, 'weight_decay': 0}
-            ],
-            lr=lr, momentum=0.5
-        )
-        if self.args.alg == 'prox':
-            optimizer = FedProx.FedProx(net.parameters(),
-                                        lr=lr,
-                                        gmf=self.args.gmf,
-                                        mu=self.args.mu,
-                                        ratio=1 / self.args.num_users,
-                                        momentum=0.5,
-                                        nesterov=False,
-                                        weight_decay=1e-4)
-
-        local_eps = self.args.local_ep
-        epoch_loss = []
-        num_updates = 0
-        for iter in range(10):
-            done = False
-            for name, param in net.named_parameters():
-                param.requires_grad = True
+            # all other methods update all parameters simultaneously
+            elif self.args.alg != 'fedbkd':
+                for name, param in net.named_parameters():
+                    param.requires_grad = True
 
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                    # print("regular == ", regular)
                 if 'sent140' in self.args.dataset:
                     input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
                     if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
@@ -916,9 +637,7 @@ class LocalUpdateGlobal(object):
                     loss.backward()
                     optimizer.step()
                 else:
-                    images= images.to(self.args.device)
-                    # labels
-                    labels = net_per(images)
+                    images, labels = images.to(self.args.device), labels.to(self.args.device)
                     net.zero_grad()
                     log_probs = net(images)
                     loss = self.loss_func(log_probs, labels)
@@ -935,285 +654,6 @@ class LocalUpdateGlobal(object):
 
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-# 随机生成数据集
-# class LocalUpdateMulti(object):
-#     def __init__(self, args, dataset=None, idxs=None, indd=None, pseudo_label=None):
-#         self.args = args
-#         if 'femnist' in args.dataset or 'sent140' in args.dataset:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, np.ones(len(dataset['x'])), name=self.args.dataset),
-#                                         batch_size=args.local_bs, shuffle=False)
-#         else:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, pseudo_label=pseudo_label), batch_size=self.args.local_bs, shuffle=False)
-#
-#         if 'sent140' in self.args.dataset and indd == None:
-#             VOCAB_DIR = 'models/embs.json'
-#             _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
-#             self.vocab_size = len(vocab)
-#         elif indd is not None:
-#             self.indd = indd
-#         else:
-#             self.indd = None
-#
-#         self.dataset = dataset
-#         self.idxs = idxs
-#         self.pseudo_label = pseudo_label
-#
-#     def loss_func(self, p_logit, q_logit):
-#         p = F.softmax(p_logit, dim=-1)
-#         _kl = torch.sum(p * (F.log_softmax(p_logit, dim=-1) - F.log_softmax(q_logit, dim=-1)), 1)
-#         # return torch.sum(_kl)
-#         return torch.mean(_kl)
-#
-#     def train(self, net_per, w_glob_keys, last=False, dataset_test=None, lr=0.1, w_locals=None, idx=None):
-#         # lr = 0.1
-#         w_global = {}
-#         for k in w_locals[idx].keys():
-#             if k not in w_glob_keys:
-#                 w_global[k] = w_locals[idx][k]
-#             else:
-#                 w_global[k] = net_per.state_dict()[k]
-#         net_per.load_state_dict(w_global)
-#         net = copy.deepcopy(net_per)
-#         net.load_state_dict(w_locals[idx])
-#         bias_p = []
-#         weight_p = []
-#         for name, p in net.named_parameters():
-#             if 'bias' in name:
-#                 bias_p += [p]
-#             else:
-#                 weight_p += [p]
-#         optimizer = torch.optim.SGD(
-#             [
-#                 {'params': weight_p, 'weight_decay': 0.0001},
-#                 {'params': bias_p, 'weight_decay': 0}
-#             ],
-#             lr=lr, momentum=0.5
-#         )
-#         if self.args.alg == 'prox':
-#             optimizer = FedProx.FedProx(net.parameters(),
-#                                         lr=lr,
-#                                         gmf=self.args.gmf,
-#                                         mu=self.args.mu,
-#                                         ratio=1 / self.args.num_users,
-#                                         momentum=0.5,
-#                                         nesterov=False,
-#                                         weight_decay=1e-4)
-#
-#         local_eps = self.args.local_ep
-#         epoch_loss = []
-#         num_updates = 0
-#         for iter in range(10):
-#             done = False
-#             for name, param in net.named_parameters():
-#                 param.requires_grad = True
-#
-#             batch_loss = []
-#             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-#                     # print("regular == ", regular)
-#                 if 'sent140' in self.args.dataset:
-#                     input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-#                     if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-#                         break
-#                     net.train()
-#                     data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-#                         self.args.device)
-#                     net.zero_grad()
-#                     hidden_train = repackage_hidden(hidden_train)
-#                     output, hidden_train = net(data, hidden_train)
-#                     loss = self.loss_func(output.t(), torch.max(targets, 1)[1])
-#                     loss.backward()
-#                     optimizer.step()
-#                 else:
-#                     images = torch.Tensor(np.random.random((self.args.local_bs,3,32,32))).to(self.args.device)
-#                     # labels
-#                     middle_labels, labels = net_per(images)
-#                     net.zero_grad()
-#                     middle_output, log_probs = net(images)
-#                     loss = 0.2*self.loss_func(log_probs, labels) + 0.8*self.loss_func(middle_output, middle_labels)
-#                     loss.backward()
-#                     optimizer.step()
-#                 num_updates += 1
-#                 batch_loss.append(loss.item())
-#                 if num_updates == self.args.local_updates:
-#                     done = True
-#                     break
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#             if done:
-#                 break
-#
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-# # 增加随机样本 0107
-# class LocalUpdateMulti(object):
-#     def __init__(self, args, dataset=None, idxs=None, indd=None, pseudo_label=None):
-#         self.args = args
-#         if 'femnist' in args.dataset or 'sent140' in args.dataset:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, np.ones(len(dataset['x'])), name=self.args.dataset),
-#                                         batch_size=args.local_bs, shuffle=False)
-#         else:
-#             self.ldr_train = DataLoader(DatasetSplit(dataset, idxs, pseudo_label=pseudo_label), batch_size=self.args.local_bs, shuffle=False)
-#
-#         if 'sent140' in self.args.dataset and indd == None:
-#             VOCAB_DIR = 'models/embs.json'
-#             _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
-#             self.vocab_size = len(vocab)
-#         elif indd is not None:
-#             self.indd = indd
-#         else:
-#             self.indd = None
-#
-#         self.dataset = dataset
-#         self.idxs = idxs
-#         self.pseudo_label = pseudo_label
-#
-#     def loss_func(self, p_logit, q_logit):
-#         p = F.softmax(p_logit, dim=-1)
-#         _kl = torch.sum(p * (F.log_softmax(p_logit, dim=-1) - F.log_softmax(q_logit, dim=-1)), 1)
-#         # return torch.sum(_kl)
-#         return torch.mean(_kl)
-#
-#     def train(self, net_per, w_glob_keys, last=False, dataset_test=None, lr=0.1, w_locals=None, idx=None):
-#         # lr = 0.1
-#         w_global = {}
-#         for k in w_locals[idx].keys():
-#             if k not in w_glob_keys:
-#                 w_global[k] = w_locals[idx][k]
-#             else:
-#                 w_global[k] = net_per.state_dict()[k]
-#         net_per.load_state_dict(w_global)
-#         net = copy.deepcopy(net_per)
-#         net.load_state_dict(w_locals[idx])
-#         bias_p = []
-#         weight_p = []
-#         for name, p in net.named_parameters():
-#             if 'bias' in name:
-#                 bias_p += [p]
-#             else:
-#                 weight_p += [p]
-#         optimizer = torch.optim.SGD(
-#             [
-#                 {'params': weight_p, 'weight_decay': 0.0001},
-#                 {'params': bias_p, 'weight_decay': 0}
-#             ],
-#             lr=lr, momentum=0.5
-#         )
-#         if self.args.alg == 'prox':
-#             optimizer = FedProx.FedProx(net.parameters(),
-#                                         lr=lr,
-#                                         gmf=self.args.gmf,
-#                                         mu=self.args.mu,
-#                                         ratio=1 / self.args.num_users,
-#                                         momentum=0.5,
-#                                         nesterov=False,
-#                                         weight_decay=1e-4)
-#         # if 'sent140' in self.args.dataset:
-#         #     global_eps = 2
-#         #     global_rep_ep = 1
-#         # elif 'femnist' in self.args.dataset:
-#         #     global_eps = 2
-#         #     global_rep_ep = 1
-#         # elif 'cifar100' in self.args.dataset:
-#         #     global_eps = 3
-#         #     global_rep_ep = 2
-#         # else:
-#         #     global_eps = 5
-#         #     global_rep_ep = 4
-#         global_eps = self.args.server_glo_eps
-#         global_rep_ep = self.args.server_rep_eps
-#         train_type = self.args.train_type
-#
-#         # global_eps = 10
-#         # global_rep_ep = 4
-#         global_head_eps = global_eps - global_rep_ep
-#         epoch_loss = []
-#         num_updates = 0
-#         if 'sent140' in self.args.dataset:
-#             hidden_train = net.init_hidden(self.args.local_bs)
-#             hidden_train_global = net_per.init_hidden(self.args.local_bs)
-#
-#         middle_weight = self.args.middle_weight
-#         for iter in range(global_eps):
-#             done = False
-#             if train_type == 0:
-#                 # (0)所有层一起训练
-#                 for name, param in net.named_parameters():
-#                     param.requires_grad = True
-#             elif train_type == 1:
-#                 # (1)表征层与个性化层分开训练   先训练个性化层
-#                 if iter < global_head_eps:
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = False
-#                         else:
-#                             param.requires_grad = True
-#                 else:
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = True
-#                         else:
-#                             param.requires_grad = False
-#             else:
-#                 # (2)表征层与个性化层分开训练   先训练表征层
-#                 if iter < global_rep_ep:
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = True
-#                         else:
-#                             param.requires_grad = False
-#                 else:
-#                     for name, param in net.named_parameters():
-#                         if name in w_glob_keys:
-#                             param.requires_grad = False
-#                         else:
-#                             param.requires_grad = True
-#
-#             batch_loss = []
-#             np.random.seed(10086)
-#             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-#                     # print("regular == ", regular)
-#                 if 'sent140' in self.args.dataset:
-#                     input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-#                     if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-#                         break
-#                     net.train()
-#                     data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-#                         self.args.device)
-#                     net.zero_grad()
-#                     # labels
-#                     hidden_train_global = repackage_hidden(hidden_train_global)
-#                     middle_labels, output_labels, hidden_train_global = net_per(data, hidden_train_global)
-#
-#                     hidden_train = repackage_hidden(hidden_train)
-#                     middle_output, output, hidden_train = net(data, hidden_train)
-#                     loss = (1-middle_weight) * self.loss_func(output.t(), output_labels.t()) + middle_weight * self.loss_func(middle_output, middle_labels)
-#                     loss.backward()
-#                     optimizer.step()
-#                 else:
-#                     if batch_idx % 2 == 0:
-#                         images = torch.Tensor(np.random.random((self.args.local_bs, 3, 32, 32))).to(self.args.device)
-#                     else:
-#                         images= images.to(self.args.device)
-#                     # labels
-#                     middle_labels, labels = net_per(images)
-#                     net.zero_grad()
-#                     middle_output, log_probs = net(images)
-#                     loss = (1-middle_weight) * self.loss_func(log_probs, labels) + middle_weight * self.loss_func(middle_output, middle_labels)
-#                     loss.backward()
-#                     optimizer.step()
-#                 num_updates += 1
-#                 batch_loss.append(loss.item())
-#                 if num_updates == self.args.local_updates:
-#                     done = True
-#                     break
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#             if done:
-#                 break
-#
-#             epoch_loss.append(sum(batch_loss) / len(batch_loss))
-#         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
 
 class LocalUpdateMulti(object):
     def __init__(self, args, dataset=None, idxs=None, indd=None, pseudo_label=None):
@@ -1240,147 +680,9 @@ class LocalUpdateMulti(object):
     def loss_func(self, p_logit, q_logit):
         p = F.softmax(p_logit, dim=-1)
         _kl = torch.sum(p * (F.log_softmax(p_logit, dim=-1) - F.log_softmax(q_logit, dim=-1)), 1)
-        # return torch.sum(_kl)
         return torch.mean(_kl)
 
-    # def train(self, net_per, w_glob_keys, last=False, dataset_test=None, lr=0.1, w_locals=None, idx=None):
-    #     # lr = 0.1
-    #     w_global = {}
-    #     for k in w_locals[idx].keys():
-    #         if k not in w_glob_keys:
-    #             w_global[k] = w_locals[idx][k]
-    #         else:
-    #             w_global[k] = net_per.state_dict()[k]
-    #     net_per.load_state_dict(w_global)
-    #     net = copy.deepcopy(net_per)
-    #     net.load_state_dict(w_locals[idx])
-    #     bias_p = []
-    #     weight_p = []
-    #     for name, p in net.named_parameters():
-    #         if 'bias' in name:
-    #             bias_p += [p]
-    #         else:
-    #             weight_p += [p]
-    #     optimizer = torch.optim.SGD(
-    #         [
-    #             {'params': weight_p, 'weight_decay': 0.0001},
-    #             {'params': bias_p, 'weight_decay': 0}
-    #         ],
-    #         lr=lr, momentum=0.5
-    #     )
-    #     if self.args.alg == 'prox':
-    #         optimizer = FedProx.FedProx(net.parameters(),
-    #                                     lr=lr,
-    #                                     gmf=self.args.gmf,
-    #                                     mu=self.args.mu,
-    #                                     ratio=1 / self.args.num_users,
-    #                                     momentum=0.5,
-    #                                     nesterov=False,
-    #                                     weight_decay=1e-4)
-    #     # if 'sent140' in self.args.dataset:
-    #     #     global_eps = 2
-    #     #     global_rep_ep = 1
-    #     # elif 'femnist' in self.args.dataset:
-    #     #     global_eps = 2
-    #     #     global_rep_ep = 1
-    #     # elif 'cifar100' in self.args.dataset:
-    #     #     global_eps = 3
-    #     #     global_rep_ep = 2
-    #     # else:
-    #     #     global_eps = 5
-    #     #     global_rep_ep = 4
-    #     global_eps = self.args.server_glo_eps
-    #     global_rep_ep = self.args.server_rep_eps
-    #     train_type = self.args.train_type
-    #
-    #     # global_eps = 10
-    #     # global_rep_ep = 4
-    #     global_head_eps = global_eps - global_rep_ep
-    #     epoch_loss = []
-    #     num_updates = 0
-    #     if 'sent140' in self.args.dataset:
-    #         hidden_train = net.init_hidden(self.args.local_bs)
-    #         hidden_train_global = net_per.init_hidden(self.args.local_bs)
-    #
-    #     middle_weight = self.args.middle_weight
-    #     for iter in range(global_eps):
-    #         done = False
-    #         if train_type == 0:
-    #             # (0)所有层一起训练
-    #             for name, param in net.named_parameters():
-    #                 param.requires_grad = True
-    #         elif train_type == 1:
-    #             # (1)表征层与个性化层分开训练   先训练个性化层
-    #             if iter < global_head_eps:
-    #                 for name, param in net.named_parameters():
-    #                     if name in w_glob_keys:
-    #                         param.requires_grad = False
-    #                     else:
-    #                         param.requires_grad = True
-    #             else:
-    #                 for name, param in net.named_parameters():
-    #                     if name in w_glob_keys:
-    #                         param.requires_grad = True
-    #                     else:
-    #                         param.requires_grad = False
-    #         else:
-    #             # (2)表征层与个性化层分开训练   先训练表征层
-    #             if iter < global_rep_ep:
-    #                 for name, param in net.named_parameters():
-    #                     if name in w_glob_keys:
-    #                         param.requires_grad = True
-    #                     else:
-    #                         param.requires_grad = False
-    #             else:
-    #                 for name, param in net.named_parameters():
-    #                     if name in w_glob_keys:
-    #                         param.requires_grad = False
-    #                     else:
-    #                         param.requires_grad = True
-    #
-    #         batch_loss = []
-    #         for batch_idx, (images, labels) in enumerate(self.ldr_train):
-    #                 # print("regular == ", regular)
-    #             if 'sent140' in self.args.dataset:
-    #                 input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-    #                 if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-    #                     break
-    #                 net.train()
-    #                 data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-    #                     self.args.device)
-    #                 net.zero_grad()
-    #                 # labels
-    #                 hidden_train_global = repackage_hidden(hidden_train_global)
-    #                 middle_labels, output_labels, hidden_train_global = net_per(data, hidden_train_global)
-    #
-    #                 hidden_train = repackage_hidden(hidden_train)
-    #                 middle_output, output, hidden_train = net(data, hidden_train)
-    #                 loss = (1-middle_weight) * self.loss_func(output.t(), output_labels.t()) + middle_weight * self.loss_func(middle_output, middle_labels)
-    #                 loss.backward()
-    #                 optimizer.step()
-    #             else:
-    #                 images= images.to(self.args.device)
-    #                 # labels
-    #                 middle_labels, labels = net_per(images)
-    #                 net.zero_grad()
-    #                 middle_output, log_probs = net(images)
-    #                 loss = (1-middle_weight) * self.loss_func(log_probs, labels) + middle_weight * self.loss_func(middle_output, middle_labels)
-    #                 loss.backward()
-    #                 optimizer.step()
-    #             num_updates += 1
-    #             batch_loss.append(loss.item())
-    #             if num_updates == self.args.local_updates:
-    #                 done = True
-    #                 break
-    #         epoch_loss.append(sum(batch_loss) / len(batch_loss))
-    #         if done:
-    #             break
-    #
-    #         epoch_loss.append(sum(batch_loss) / len(batch_loss))
-    #     return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-    # 鹏少train
-    def train(self, net_per, w_glob_keys, last=False, dataset_test=None, lr=0.1, w_locals=None, idx=None):
+    def train(self, net_per, w_glob_keys, lr=0.1, w_locals=None, idx=None):
         # lr = 0.1
         w_global = {}
         for k in w_locals[idx].keys():
@@ -1422,41 +724,11 @@ class LocalUpdateMulti(object):
             hidden_train_global = net_per.init_hidden(self.args.local_bs)
         for iter in range(global_eps):
             done = False
-            # (0)所有层一起训练
             for name, param in net.named_parameters():
                 param.requires_grad = True
 
-            # # (1)表征层与个性化层分开训练   先训练个性化层
-            # if iter < global_head_eps:
-            #     for name, param in net.named_parameters():
-            #         if name in w_glob_keys:
-            #             param.requires_grad = False
-            #         else:
-            #             param.requires_grad = True
-            # else:
-            #     for name, param in net.named_parameters():
-            #         if name in w_glob_keys:
-            #             param.requires_grad = True
-            #         else:
-            #             param.requires_grad = False
-
-            # # (2)表征层与个性化层分开训练   先训练表征层
-            # if iter < global_rep_ep:
-            #     for name, param in net.named_parameters():
-            #         if name in w_glob_keys:
-            #             param.requires_grad = True
-            #         else:
-            #             param.requires_grad = False
-            # else:
-            #     for name, param in net.named_parameters():
-            #         if name in w_glob_keys:
-            #             param.requires_grad = False
-            #         else:
-            #             param.requires_grad = True
-
             batch_loss = []
             for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                # print("regular == ", regular)
                 if 'sent140' in self.args.dataset:
                     input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
                     if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
@@ -1520,250 +792,6 @@ class LocalUpdateMulti(object):
 
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
         return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-
-# Generic local update class, implements local updates for FedRep, FedPer, LG-FedAvg, FedAvg, FedProx
-class LocalUpdate(object):
-    def __init__(self, args, dataset=None, idxs=None, indd=None):
-        self.args = args
-        self.loss_func = nn.CrossEntropyLoss()
-        if 'femnist' in args.dataset or 'sent140' in args.dataset: 
-            self.ldr_train = DataLoader(DatasetSplit(dataset, np.ones(len(dataset['x'])),name=self.args.dataset), batch_size=self.args.local_bs, shuffle=True)
-        else:
-            self.ldr_train = DataLoader(DatasetSplit(dataset, idxs), batch_size=self.args.local_bs, shuffle=True)
-         
-        if 'sent140' in self.args.dataset and indd == None:
-            VOCAB_DIR = 'models/embs.json'
-            _, self.indd, vocab = get_word_emb_arr(VOCAB_DIR)
-            self.vocab_size = len(vocab)
-        elif indd is not None:
-            self.indd = indd
-        else:
-            self.indd=None        
-        
-        self.dataset=dataset
-        self.idxs=idxs
-
-    # brianzhao
-    def train(self, net, w_glob_keys=None, last=False, dataset_test=None, ind=-1, idx=-1, lr=0.1, lamda=0.5, alpha=0.3, uk=[], global_param=0):
-        bias_p = []
-        weight_p = []
-        for name, p in net.named_parameters():
-            if 'bias' in name:
-                bias_p += [p]
-            else:
-                weight_p += [p]
-        optimizer = torch.optim.SGD(
-            [
-                {'params': weight_p, 'weight_decay': 0.0001},
-                {'params': bias_p, 'weight_decay': 0}
-            ],
-            lr=lr, momentum=0.5
-        )
-        if self.args.alg == 'prox':
-            optimizer = FedProx.FedProx(net.parameters(),
-                                        lr=lr,
-                                        gmf=self.args.gmf,
-                                        mu=self.args.mu,
-                                        ratio=1 / self.args.num_users,
-                                        momentum=0.5,
-                                        nesterov=False,
-                                        weight_decay=1e-4)
-
-        local_eps = self.args.local_ep
-        if last:
-            if self.args.alg == 'fedavg' or self.args.alg == 'prox':
-                local_eps = 10
-                net_keys = [*net.state_dict().keys()]
-                if 'cifar' in self.args.dataset:
-                    w_glob_keys = [net.weight_keys[i] for i in [0, 1, 3, 4]]
-                elif 'sent140' in self.args.dataset:
-                    w_glob_keys = [net_keys[i] for i in [0, 1, 2, 3, 4, 5]]
-                elif 'mnist' in self.args.dataset:
-                    w_glob_keys = [net.weight_keys[i] for i in [0, 1, 2]]
-            elif 'maml' in self.args.alg:
-                local_eps = 5
-                w_glob_keys = []
-            else:
-                local_eps = max(10, local_eps - self.args.local_rep_ep)
-
-        head_eps = local_eps - self.args.local_rep_ep
-        epoch_loss = []
-        num_updates = 0
-        if 'sent140' in self.args.dataset:
-            hidden_train = net.init_hidden(self.args.local_bs)
-        if global_param:
-            for name, param in net.named_parameters():
-                param.requires_grad = True
-        for iter in range(local_eps):
-            done = False
-            if not global_param:
-                # for FedRep, first do local epochs for the head
-                if (iter < head_eps and self.args.alg == 'fedrep') or last:
-                    for name, param in net.named_parameters():
-                        if name in w_glob_keys:
-                            param.requires_grad = False
-                        else:
-                            param.requires_grad = True
-
-                # then do local epochs for the representation
-                elif iter == head_eps and self.args.alg == 'fedrep' and not last:
-                    for name, param in net.named_parameters():
-                        if name in w_glob_keys:
-                            param.requires_grad = True
-                        else:
-                            param.requires_grad = False
-
-                # all other methods update all parameters simultaneously
-                elif self.args.alg != 'fedrep':
-                    for name, param in net.named_parameters():
-                        param.requires_grad = True
-
-            batch_loss = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                if not len(uk):
-                    regular = 0
-                else:
-                    # w_k = np.array([i.cpu().numpy().reshape(-1) for i in list(itertools.chain.from_iterable([*net.state_dict().values()]))])
-                    w_k = np.array(list(itertools.chain.from_iterable([np.array(i.cpu()).reshape(-1) for i in [*net.state_dict().values()]])))
-                    regular = lamda * compute_D_cuda(w_k, uk)
-                    # print("regular == ", regular)
-                if 'sent140' in self.args.dataset:
-                    input_data, target_data = process_x(images, self.indd), process_y(labels, self.indd)
-                    if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-                        break
-                    net.train()
-                    data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(
-                        self.args.device)
-                    net.zero_grad()
-                    hidden_train = repackage_hidden(hidden_train)
-                    output, hidden_train = net(data, hidden_train)
-                    loss = self.loss_func(output.t(), torch.max(targets, 1)[1]) + regular
-                    loss.backward()
-                    optimizer.step()
-                else:
-                    images, labels = images.to(self.args.device), labels.to(self.args.device)
-                    net.zero_grad()
-                    log_probs = net(images)
-                    loss = self.loss_func(log_probs, labels) + regular
-                    loss.backward()
-                    optimizer.step()
-                num_updates += 1
-                batch_loss.append(loss.item())
-                if num_updates == self.args.local_updates:
-                    done = True
-                    break
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-            if done:
-                break
-
-            epoch_loss.append(sum(batch_loss) / len(batch_loss))
-        return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
-
-
-    # def train(self, net, w_glob_keys, last=False, dataset_test=None, ind=-1, idx=-1, lr=0.1):
-    #     bias_p=[]
-    #     weight_p=[]
-    #     for name, p in net.named_parameters():
-    #         if 'bias' in name:
-    #             bias_p += [p]
-    #         else:
-    #             weight_p += [p]
-    #     optimizer = torch.optim.SGD(
-    #     [
-    #         {'params': weight_p, 'weight_decay':0.0001},
-    #         {'params': bias_p, 'weight_decay':0}
-    #     ],
-    #     lr=lr, momentum=0.5
-    #     )
-    #     if self.args.alg == 'prox':
-    #         optimizer = FedProx.FedProx(net.parameters(),
-    #                          lr=lr,
-    #                          gmf=self.args.gmf,
-    #                          mu=self.args.mu,
-    #                          ratio=1/self.args.num_users,
-    #                          momentum=0.5,
-    #                          nesterov = False,
-    #                          weight_decay = 1e-4)
-    #
-    #     local_eps = self.args.local_ep
-    #     if last:
-    #         if self.args.alg =='fedavg' or self.args.alg == 'prox':
-    #             local_eps= 10
-    #             net_keys = [*net.state_dict().keys()]
-    #             if 'cifar' in self.args.dataset:
-    #                 w_glob_keys = [net.weight_keys[i] for i in [0,1,3,4]]
-    #             elif 'sent140' in self.args.dataset:
-    #                 w_glob_keys = [net_keys[i] for i in [0,1,2,3,4,5]]
-    #             elif 'mnist' in args.dataset:
-    #                 w_glob_keys = [net_glob.weight_keys[i] for i in [0,1,2]]
-    #         elif 'maml' in self.args.alg:
-    #             local_eps = 5
-    #             w_glob_keys = []
-    #         else:
-    #             local_eps =  max(10,local_eps-self.args.local_rep_ep)
-    #
-    #     head_eps = local_eps-self.args.local_rep_ep
-    #     epoch_loss = []
-    #     num_updates = 0
-    #     if 'sent140' in self.args.dataset:
-    #         hidden_train = net.init_hidden(self.args.local_bs)
-    #     for iter in range(local_eps):
-    #         done = False
-    #
-    #         # for FedRep, first do local epochs for the head
-    #         if (iter < head_eps and self.args.alg == 'fedrep') or last:
-    #             for name, param in net.named_parameters():
-    #                 if name in w_glob_keys:
-    #                     param.requires_grad = False
-    #                 else:
-    #                     param.requires_grad = True
-    #
-    #         # then do local epochs for the representation
-    #         elif iter == head_eps and self.args.alg == 'fedrep' and not last:
-    #             for name, param in net.named_parameters():
-    #                 if name in w_glob_keys:
-    #                     param.requires_grad = True
-    #                 else:
-    #                     param.requires_grad = False
-    #
-    #         # all other methods update all parameters simultaneously
-    #         elif self.args.alg != 'fedrep':
-    #             for name, param in net.named_parameters():
-    #                  param.requires_grad = True
-    #
-    #         batch_loss = []
-    #         for batch_idx, (images, labels) in enumerate(self.ldr_train):
-    #             if 'sent140' in self.args.dataset:
-    #                 input_data, target_data = process_x(images, self.indd), process_y(labels,self.indd)
-    #                 if self.args.local_bs != 1 and input_data.shape[0] != self.args.local_bs:
-    #                     break
-    #                 net.train()
-    #                 data, targets = torch.from_numpy(input_data).to(self.args.device), torch.from_numpy(target_data).to(self.args.device)
-    #                 net.zero_grad()
-    #                 hidden_train = repackage_hidden(hidden_train)
-    #                 output, hidden_train = net(data, hidden_train)
-    #                 loss = self.loss_func(output.t(), torch.max(targets, 1)[1])
-    #                 loss.backward()
-    #                 optimizer.step()
-    #             else:
-    #                 images, labels = images.to(self.args.device), labels.to(self.args.device)
-    #                 net.zero_grad()
-    #                 log_probs = net(images)
-    #                 loss = self.loss_func(log_probs, labels)
-    #                 loss.backward()
-    #                 optimizer.step()
-    #             num_updates += 1
-    #             batch_loss.append(loss.item())
-    #             if num_updates == self.args.local_updates:
-    #                 done = True
-    #                 break
-    #         epoch_loss.append(sum(batch_loss)/len(batch_loss))
-    #         if done:
-    #             break
-    #
-    #         epoch_loss.append(sum(batch_loss) / len(batch_loss))
-    #     return net.state_dict(), sum(epoch_loss) / len(epoch_loss), self.indd
 
 class LocalUpdateMTL(object):
     def __init__(self, args, dataset=None, idxs=None,indd=None):

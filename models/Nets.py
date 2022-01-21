@@ -1,5 +1,4 @@
 # Modified from: https://github.com/pliang279/LG-FedAvg/blob/master/models/Nets.py
-# credit goes to: Paul Pu Liang
 
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-

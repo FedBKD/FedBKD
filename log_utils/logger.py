@@ -23,10 +23,10 @@ month = localtime[1]
 day = localtime[2]
 hour = localtime[3]
 logname = args.function+"_"+str(month)+"-"+str(day)+"_"+str(args.dataset)+"_"+str(args.num_users)+"_"+str(args.epochs)+"_"+str(args.frac)+"_"+str(args.seed)
-log_dir = "/home/FedRep/logging/"+logname+"/"
-attention_file = "/home/FedRep/logging/"+logname+"/attention.txt"
+log_dir = "./logging/"+logname+"/"
+attention_file = "./logging/"+logname+"/attention.txt"
 
-para_record_dir = "/home/FedRep/logging/para"
+para_record_dir = "./logging/para"
 
 log_dict = {
     'version': 1,

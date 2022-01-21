@@ -1,19 +1,6 @@
-# Modified from: https://github.com/pliang279/LG-FedAvg/blob/master/main_fed.py
-# credit goes to: Paul Pu Liang
+# Modified from: https://github.com/lgcollins/FedRep.git
 
-'''
-在transformer构造的基础上，每一轮输出的地方做avg，传递给下一轮
-'''
-
-# !/usr/bin/env python
-# -*- coding: utf-8 -*-
-# Python version: 3.6
-
-# This program implements FedRep under the specification --alg fedrep, as well as Fed-Per (--alg fedper), LG-FedAvg (--alg lg),
-# FedAvg (--alg fedavg) and FedProx (--alg prox)
-# 初始化参数使用avg
 import logging
-import os
 import time
 import json
 
@@ -22,22 +9,14 @@ import itertools
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
-
-from utils.options import args_parser
-from utils.train_utils import get_data, get_model, read_data, get_data_artificial_imbalanced
-# from models0106.Update_0103_exchange import LocalUpdate1202, LocalUpdateGlobal, LocalUpdateMulti
-from models.Update import LocalUpdate1202, LocalUpdateGlobal, LocalUpdateMulti
-from models.test import test_img_local_all, client_predict, client_predict_1224, client_predict_1225
-from models.attention import self_attention, self_attention_transformer,self_attention_transformer_selfweight, self_attention_transformer_wasserstein_distance, self_attention_transformer_nextsample
+from utils.train_utils import get_data, get_model, read_data
+from models.Update import LocalUpdate, LocalUpdateMulti
+from models.test import test_img_local_all
 from log_utils.logger import loss_logger, cfs_mtrx_logger, parameter_logger, data_logger, para_record_dir,args,attention_file
-# from log_utils.logger import logset
-from att_utils import igfl_server_aggregate, get_para_property
 import os
-from models.Nets import CNNCifarGlobal, CNNCifar100Global, CNNCifar, CNNCifar100, CNNCifarMulti, CNNCifar100Multi, MLPMulti, RNNSentMulti
+from models.Nets import CNNCifarMulti, CNNCifar100Multi, MLPMulti, RNNSentMulti
 import math
 
-# args = args_parser()
 save_dir = "save_" + args.alg + '_' + args.dataset + '_' + str(args.num_users) \
                + '_' + str(args.shard_per_user) + "_" + str(args.attention)
 para_dir = os.path.join(para_record_dir, args.alg + '_' + args.dataset + '_' + str(args.num_users) + '_' + str(
@@ -59,20 +38,14 @@ np.random.seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(args.seed)
 torch.manual_seed(args.seed)
-# np.random.seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-
-# logset = logset(args)
-# loss_logger, cfs_mtrx_logger, parameter_logger, data_logger = logset.loggers()
 
 
 if __name__ == '__main__':
     # parse args
     cuda0 = torch.device('cuda:' + str(args.gpu))
     args.device = torch.device('cuda:{}'.format(args.gpu) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
-
-    print(args)
     loss_logger.info("Start experiment with args: \n {}".format(str(args)))
     cfs_mtrx_logger.info("Start experiment with args: \n {}".format(str(args)))
     parameter_logger.info("Start experiment with args: \n {}".format(str(args)))
@@ -85,13 +58,12 @@ if __name__ == '__main__':
             np.random.shuffle(dict_users_train[idx])
     else:
         if 'femnist' in args.dataset:
-            train_path = '/home/FedRep/data/' + args.dataset + '/data/train'
-            test_path = '/home/FedRep/data/' + args.dataset + '/data/test'
+            train_path = './data/' + args.dataset + '/data/train'
+            test_path = './data/' + args.dataset + '/data/test'
         else:
-            train_path = '/home/FedRep/data/' + args.dataset + '/data/train'
-            test_path = '/home/FedRep/data/' + args.dataset + '/data/test'
+            train_path = './data/' + args.dataset + '/data/train'
+            test_path = './data/' + args.dataset + '/data/test'
         clients, groups, dataset_train, dataset_test = read_data(train_path, test_path)
-        # global_train = np.random.choice(range(len(dataset_train)), math.ceil(len(dataset_train)*0.01), replace=False)
         print("----------------dataset_test-----------------")
         print(len(dataset_test))
         print("---------------------------------------------")
@@ -100,12 +72,9 @@ if __name__ == '__main__':
             lens.append(len(dataset_train[c]['x']))
         dict_users_train = list(dataset_train.keys())
         dict_users_test = list(dataset_test.keys())
-        print(lens)
-        print(clients)
         for c in dataset_train.keys():
             dataset_train[c]['y'] = list(np.asarray(dataset_train[c]['y']).astype('int64'))
             dataset_test[c]['y'] = list(np.asarray(dataset_test[c]['y']).astype('int64'))
-        #   拆分global数据集
         global_train = {'x':[], 'y':[]}
         total_num = sum([len(dataset_train[i]['y']) for i in list(dataset_train.keys())])
         sample_num = math.ceil(total_num*0.02)
@@ -117,10 +86,8 @@ if __name__ == '__main__':
             sample_data_index = np.random.choice(range(len(dataset_train[list(dataset_train.keys())[i]]['y'])), 1)
             sample_x = dataset_train[list(dataset_train.keys())[i]]['x'][sample_data_index[0]]
             sample_y = dataset_train[list(dataset_train.keys())[i]]['y'][sample_data_index[0]]
-            # global数据集中增加该条数据
             global_train['x'].append(sample_x)
             global_train['y'].append(sample_y)
-            # 用户删除该条数据
             dataset_train[list(dataset_train.keys())[i]]['y'].remove(sample_y)
             dataset_train[list(dataset_train.keys())[i]]['x'].remove(sample_x)
     print(args.alg)
@@ -133,12 +100,10 @@ if __name__ == '__main__':
         net_glob.load_state_dict(torch.load(fed_model_path))
 
     total_num_layers = len(net_glob.state_dict().keys())
-    print(net_glob.state_dict().keys())
-    # ['rnn.weight_ih_l0', 'rnn.weight_hh_l0', 'rnn.bias_ih_l0', 'rnn.bias_hh_l0', 'fc.weight', 'fc.bias', 'decoder.weight', 'decoder.bias']
     net_keys = [*net_glob.state_dict().keys()]
 
     # specify the representation parameters (in w_glob_keys) and head parameters (all others)
-    if args.alg == 'fedrep' or args.alg == 'fedper':
+    if args.alg == 'fedbkd' or args.alg == 'fedrep' or args.alg == 'fedper':
         if 'cifar' in args.dataset:
             w_glob_keys = [net_glob.weight_keys[i] for i in [4, 3, 0, 1]]
         elif 'mnist' in args.dataset:
@@ -162,10 +127,7 @@ if __name__ == '__main__':
     if 'sent140' not in args.dataset:
         w_glob_keys = list(itertools.chain.from_iterable(w_glob_keys))
 
-    print(total_num_layers)
-    print(w_glob_keys)  # ['rnn.weight_ih_l0', 'rnn.weight_hh_l0', 'rnn.bias_ih_l0', 'rnn.bias_hh_l0', 'fc.weight', 'fc.bias']
-    print(net_keys)
-    if args.alg == 'fedrep' or args.alg == 'fedper' or args.alg == 'lg':
+    if args.alg == 'fedbkd' or args.alg == 'fedrep' or args.alg == 'fedper' or args.alg == 'lg':
         num_param_glob = 0
         num_param_local = 0
         for key in net_glob.state_dict().keys():
@@ -178,8 +140,6 @@ if __name__ == '__main__':
             num_param_local, num_param_glob, percentage_param, num_param_glob, num_param_local))
     print("learning rate, batch size: {}, {}".format(args.lr, args.local_bs))
 
-    # generate list of local models0106 for each user
-    # net_local_list = [net_glob * len(clients)]
     w_locals = {}
     w_locals_with_global_para = {}
     for user in range(args.num_users):
@@ -197,12 +157,7 @@ if __name__ == '__main__':
     accs10 = 0
     accs10_glob = 0
     start = time.time()
-    # before_w = copy.deepcopy(w_locals[0]['layer_input.weight'])
-    # after_w = copy.deepcopy(w_locals[0]['layer_input.weight'])
 
-
-    # idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-    # print(idxs_users)
     client_sample_history = dict()
     acc_list = []
     acc_list_ = []
@@ -214,20 +169,13 @@ if __name__ == '__main__':
         if iter == args.epochs - 1:
             m = args.num_users
 
-        # print("epoch:" + str(iter))
         data_logger.info("epoch: \n {}".format(str(iter)))
 
         epoch_start = time.time()
         w_glob = {}
         loss_locals = []
-        # m = max(int(args.frac * args.num_users), 1)
-        # if iter == args.epochs:
-        #     m = args.num_users
 
         parameters = {}
-        # for num in range(total_num_layers):
-        #     parameters.append([])
-        # np.random.seed(args.seed + iter * 10)
 
         if iter == 0:
             idxs_users = np.random.choice(range(args.num_users), m, replace=False)
@@ -235,34 +183,31 @@ if __name__ == '__main__':
             idxs_users = next_sample_list
         data_logger.info("samples: \n {}".format(",".join([str(ele) for ele in idxs_users.tolist()])))
         client_sample_history[iter] = idxs_users.tolist()
-        # idxs_users = [0,1]
-        w_keys_epoch = w_glob_keys  # ['rnn.weight_ih_l0', 'rnn.weight_hh_l0', 'rnn.bias_ih_l0', 'rnn.bias_hh_l0', 'fc.weight', 'fc.bias']
+        w_keys_epoch = w_glob_keys
         times_in = []
         total_len = 0
         index_dict = {}
 
         for ind, idx in enumerate(idxs_users):
             index_dict[str(ind)] = idx
-            # print("clients:" + str(ind) + "," + str(idx))
             start_in = time.time()
             if 'femnist' in args.dataset or 'sent140' in args.dataset:
                 if args.epochs == iter:
                     # finetune
-                    local = LocalUpdate1202(args=args, dataset=dataset_train[list(dataset_train.keys())[idx][:args.m_ft]],
+                    local = LocalUpdate(args=args, dataset=dataset_train[list(dataset_train.keys())[idx][:args.m_ft]],
                                         idxs=dict_users_train, indd=indd)
                 else:
                     # train
-                    local = LocalUpdate1202(args=args, dataset=dataset_train[list(dataset_train.keys())[idx][:args.m_tr]],
+                    local = LocalUpdate(args=args, dataset=dataset_train[list(dataset_train.keys())[idx][:args.m_tr]],
                                         idxs=dict_users_train, indd=indd)
             else:
                 if args.epochs == iter:
-                    local = LocalUpdate1202(args=args, dataset=dataset_train, idxs=dict_users_train[idx][:args.m_ft])
+                    local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users_train[idx][:args.m_ft])
                 else:
-                    local = LocalUpdate1202(args=args, dataset=dataset_train, idxs=dict_users_train[idx][:args.m_tr])
+                    local = LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users_train[idx][:args.m_tr])
 
             net_local = copy.deepcopy(net_glob)
             w_local = net_local.state_dict()
-            # (1)fedrep初始化思路
             for k in w_locals[idx].keys():
                 if iter == 0:
                     w_local[k] = w_locals[idx][k]
@@ -271,33 +216,16 @@ if __name__ == '__main__':
                         w_local[k] = w_global[k]
                     else:
                         w_local[k] = w_locals[idx][k]
-            # # # (2)global avg思路
-            # for k in w_locals[idx].keys():
-            #     if iter == 0:
-            #         w_local[k] = w_locals[idx][k]
-            #     else:
-            #         w_local[k] = w_global[k]
-            # # (3)不传
-            # for k in w_locals[idx].keys():
-            #     w_local[k] = w_locals[idx][k]
 
             net_local.load_state_dict(w_local)
-            # print("-----------------------before------------------------------------")
-            # print(len(w_locals))
-            # # print(w_locals)
-            # print(w_local['rnn.weight_ih_l0'])
-            # print("clients:" + str(ind) + "," + str(idx))
-            # print("-----------------------before------------------------------------")
-            # print(w_locals[idx]['layer_input.weight'])
-            # before_w = copy.deepcopy(w_locals[idx]['layer_input.weight'])
 
             last = iter == args.epochs
             if 'femnist' in args.dataset or 'sent140' in args.dataset:
-                w_local, loss, indd = local.train(net=net_local.to(args.device), ind=idx, idx=clients[idx],
-                                                  w_glob_keys=w_glob_keys, lr=args.lr, last=last, uk=[])
+                w_local, loss, indd = local.train(net=net_local.to(args.device),
+                                                  w_glob_keys=w_glob_keys, lr=args.lr, last=last)
             else:
-                w_local, loss, indd = local.train(net=net_local.to(args.device), idx=idx, w_glob_keys=w_glob_keys,
-                                                  lr=args.lr, last=last, uk=[])
+                w_local, loss, indd = local.train(net=net_local.to(args.device), w_glob_keys=w_glob_keys,
+                                                  lr=args.lr, last=last)
 
             loss_locals.append(copy.deepcopy(loss))
             time_train_end = time.time()
@@ -349,7 +277,6 @@ if __name__ == '__main__':
 
         w_global = copy.deepcopy(w_glob)
 
-        # 初始化模型
         if args.dataset == 'cifar100':
             net_per = CNNCifar100Multi(args=args).to(args.device)
         elif args.dataset == 'cifar10':
@@ -360,88 +287,28 @@ if __name__ == '__main__':
             net_per = MLPMulti(dim_in=784, dim_hidden=256, dim_out=args.num_classes).to(args.device)
 
         net_per.load_state_dict(w_glob)
-        # 训练个性化模型
-        # # 每个客户端使用一样的数据集   随机采样百分之60
-        # if iter == 0:
-        #     if args.dataset != 'sent140' and args.dataset != 'femnist':
-        #         global_train = np.random.choice(global_train, math.ceil(len(global_train) * 0.6), replace=False)
-        #         sample_targets_list = [dataset_train.targets[i] for i in global_train]
-        #         targets = list(set(sample_targets_list))
-        #         targets.sort()
-        #         sample_count = {}
-        #         for i in targets:
-        #             sample_count[i] = sample_targets_list.count(i)
-        #         data_logger.info("global dataset sampled distribution: %s"%(str(sample_count)))
 
-        # # # # 0106 global分布不同
-        # if iter == 0:
-        #     if args.dataset != 'sent140' and args.dataset != 'femnist':
-        #         sample_targets_list = [dataset_train.targets[i] for i in global_train]
-        #         global_train_final = []
-        #         # # # 2
-        #         # targets = [0,7]
-        #         # class_num = {0:0, 7:0}
-        #         # for i in global_train:
-        #         #     if dataset_train.targets[i] in targets:
-        #         #         global_train_final.append(i)
-        #         #         class_num[dataset_train.targets[i]] += 1
-        #         # # 4
-        #         n = 10
-        #         total_sample_num = sample_targets_list.count(0) + sample_targets_list.count(1)
-        #         sample_num_per_class = total_sample_num // n
-        #         class_num = {}
-        #         targets = list(np.random.choice(range(10), n, replace=False))
-        #         print('global_targets:',targets)
-        #         for i in range(len(sample_targets_list)):
-        #             if sample_targets_list[i] not in class_num:
-        #                 class_num[sample_targets_list[i]] = 0
-        #             if sample_targets_list[i] in targets and class_num[sample_targets_list[i]] < sample_num_per_class:
-        #                 global_train_final.append(global_train[i])
-        #                 class_num[sample_targets_list[i]] += 1
-        #         print("global dataset sampled distribution: %s"%(str(class_num)))
-        #         data_logger.info("global dataset sampled distribution: %s"%(str(class_num)))
-        #         global_train = global_train_final
-
-        # # 0106 global数量不同
         if iter == 0:
             if args.dataset != 'sent140' and args.dataset != 'femnist':
-                global_total_num = len(global_train)
-                ratio = args.global_dataset_ratio
-                class_per_num = int(global_total_num * ratio) // 10
-                class_num = {}
+                global_train = np.random.choice(global_train, math.ceil(len(global_train) * 0.6), replace=False)
                 sample_targets_list = [dataset_train.targets[i] for i in global_train]
-                global_train_tmp = []
-                for i in range(len(sample_targets_list)):
-                    if sample_targets_list[i] not in class_num:
-                        class_num[sample_targets_list[i]] = 0
-                    if class_num[sample_targets_list[i]] <= class_per_num:
-                        class_num[sample_targets_list[i]] += 1
-                        global_train_tmp.append(global_train[i])
-                global_train = global_train_tmp
-                data_logger.info("global dataset sampled distribution: %s" % (str(class_num)))
+                targets = list(set(sample_targets_list))
+                targets.sort()
+                sample_count = {}
+                for i in targets:
+                    sample_count[i] = sample_targets_list.count(i)
+                data_logger.info("global dataset sampled distribution: %s"%(str(sample_count)))
 
         if args.dataset == 'sent140' or args.dataset == 'femnist':
             global_dataset = global_train
         else:
             global_dataset = dataset_train
         for idx in idxs_users:
-            # # 客户端从global_train中随机采样60%作为训练集训练
-            # global_train_sample = np.random.choice(global_train, math.ceil(len(global_train)*0.6), replace=False)
-            # global_model = LocalUpdateMulti(args=args, dataset=global_dataset,
-            #                         idxs=global_train_sample, indd=indd)
-            # w_idx_local, loss, indd = global_model.train(net_per=net_per.to(args.device), w_glob_keys=w_glob_keys, lr=args.lr, w_locals=w_locals, idx=idx)
-
-            # # 原始  每个客户端使用全部一样的公共数据集训练
             global_model = LocalUpdateMulti(args=args, dataset=global_dataset,
                                     idxs=global_train, indd=indd)
 
             w_idx_local, loss, indd = global_model.train(net_per=net_per.to(args.device), w_glob_keys=w_glob_keys, lr=args.lr, w_locals=w_locals, idx=idx)
 
-            # # 原始  只将global层赋回
-            # for k in net_glob.state_dict().keys():
-            #     if k in w_glob_keys:
-            #         w_locals[idx][k] = w_idx_local[k]
-            # 直接用所有层
             for k in net_glob.state_dict().keys():
                 w_locals[idx][k] = w_idx_local[k]
 
@@ -458,11 +325,6 @@ if __name__ == '__main__':
                                                      return_all=False, iter=iter)
             loss_logger.info("averaged local acc of round {}: \n{}".format(iter, json.dumps(acc_test)))
             loss_logger.info("averaged local loss of round {}: \n{}".format(iter, json.dumps(loss_test)))
-
-            # acc_test_, loss_test_, acc_all_ = test_img_local_all(net_glob, args, dataset_test, dict_users_test,
-            #                                             w_glob_keys=w_glob_keys, w_locals=w_locals_with_global_para, indd=indd,dataset_train=dataset_train, dict_users_train=dict_users_train, return_all=False)
-            # loss_logger.info("averaged local acc of round {}: \n{}".format(str(iter) + " with para back", json.dumps(acc_test_)))
-            # loss_logger.info("averaged local loss of round {}: \n{}".format(str(iter) + " with para back", json.dumps(loss_test_)))
 
             accs.append(acc_test)
             # for algs which learn a single global model, these are the local accuracies (computed using the locally updated versions of the global model at the end of each round)
