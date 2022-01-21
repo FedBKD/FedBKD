@@ -55,4 +55,4 @@ For examples of running FedBKD as well as the FL baselines we compare against, p
 
 # Acknowledgements
 
-Much of the code in this repository was adapted from code in the repository https://github.com/lgcollins/FedRep.git
+Much of the code in this repository was adapted from code in the repository https://github.com/FedBKD/FedBKD.git
