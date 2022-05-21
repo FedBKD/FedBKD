@@ -59,12 +59,6 @@ def args_parser():
     parser.add_argument('--results_save', type=str, default='runA', help='define fed results save folder')
     parser.add_argument('--save_every', type=int, default=50, help='how often to save models0106')
 
-    # attention options
-    parser.add_argument('--attention', type=str, default="None", help='the attention used from IGFL')
-    parser.add_argument('--function', type=str, default="fedrep", help='function name')
-    parser.add_argument('--is_cover', type=int, default=1, help='next iter cover the parameter using global')
-    parser.add_argument('--self_weight', type=float, default=0.5, help='next iter cover the parameter using global')
-
     parser.add_argument('--global_param', type=int, default=1, help='net parameters is global')
 
     # global task
@@ -72,8 +66,17 @@ def args_parser():
     parser.add_argument('--server_rep_eps', type=int, default=4, help='server rep epochs')
     parser.add_argument('--middle_weight', type=float, default=0.8, help='server middle weight')
     parser.add_argument('--train_type', type=int, default=1, help='server train type')
-    parser.add_argument('--global_dataset_ratio', type=float, default=0.5, help='global dataset ratio')
-    parser.add_argument('--loss_weight', type=float, default=0.1, help='loss weight')
 
+    parser.add_argument("--num_glob_iters", type=int, default=200)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--embedding", type=int, default=1, help="Use embedding layer in generator network")
+    parser.add_argument("--gan_eps", type=int, default=5, help="gan_eps")
+    parser.add_argument("--n_teacher_iters", type=int, default=5, help="n_teacher_iters")
+    parser.add_argument("--gan_train_nums", type=int, default=500, help="gan_train_nums")
+    parser.add_argument("--gan_img_nums", type=int, default=300, help="gan_img_nums")
+    parser.add_argument("--tem", type=float, default=1.0, help="temperature")
+
+    parser.add_argument("--random_bkd", type=int, default=0, help="random_bkd")
+    parser.add_argument("--save_avg_model", type=int, default=0, help="save_avg_model")
     args = parser.parse_args()
     return args
