@@ -1,8 +1,4 @@
-# Modified from: https://github.com/litian96/FedProx/blob/master/flearn/utils/language_utils.py
-# and https://github.com/IBM/FedMA/blob/4b586a5a22002dc955d025b890bc632daa3c01c7/language_modeling/language_utils.py
-# credit goes to: Tian Li (litian96 @ GitHub) and H Wang
-
-"""Utils for language models0106."""
+# Modified from: https://github.com/lgcollins/FedRep.git
 
 import re
 import numpy as np
