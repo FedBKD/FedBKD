@@ -1,4 +1,4 @@
-FedBKD: Bidirectional Knowledge Distillation for Personalization Federated Learning
+FedBKD:Distilled Federated Learning to Embrace Gerneralization and Personalization on Non-IID Data
 
 ## Dependencies
 
