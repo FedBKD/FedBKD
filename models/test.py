@@ -1,4 +1,4 @@
-# Modified from: https://github.com/pliang279/LG-FedAvg/blob/master/models/test.py
+# Modified from: https://github.com/lgcollins/FedRep.git
 
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from models.language_utils import repackage_hidden, process_x, process_y
 import json
 
-from log_utils.logger import loss_logger, cfs_mtrx_logger, parameter_logger, data_logger, para_record_dir
+from log_utils.logger import loss_logger, cfs_mtrx_logger
 
 
 class DatasetSplit(Dataset):
@@ -94,7 +94,6 @@ def test_img_local(net_g, dataset, args, idx=None, indd=None, user_idx=-1, idxs=
             if args.gpu != -1:
                 data, target = data.to(args.device), target.to(args.device)
             log_probs = net_g(data)
-            # sum up batch loss
             test_loss += F.cross_entropy(log_probs, target, reduction='sum').item()
             y_pred = log_probs.data.max(1, keepdim=True)[1]
             for tgt, prd in zip(target.tolist(), y_pred.squeeze(1).tolist()):
@@ -104,13 +103,12 @@ def test_img_local(net_g, dataset, args, idx=None, indd=None, user_idx=-1, idxs=
 
     if 'sent140' not in args.dataset:
         count = len(data_loader.dataset)
-    # print("count:"+str(count))
     test_loss /= count
     accuracy = 100.00 * float(correct) / count
     return accuracy, test_loss, confusion_martix
 
 
-def test_img_local_all(net, args, dataset_test, dict_users_test,w_locals=None,w_glob_keys=None, indd=None,dataset_train=None,dict_users_train=None, return_all=False, iter=None):
+def test_img_local_all(net, args, dataset_test, dict_users_test,w_locals=None,w_glob_keys=None, indd=None,dataset_train=None,dict_users_train=None, return_all=False, iter=None, idx_users=None):
     tot = 0
     num_idxxs = args.num_users
     acc_test_local = np.zeros(num_idxxs)
@@ -120,11 +118,21 @@ def test_img_local_all(net, args, dataset_test, dict_users_test,w_locals=None,w_
     confusion_martix_record = {i: None for i in range(num_idxxs)}
     for idx in range(num_idxxs):
         net_local = copy.deepcopy(net)
-        if w_locals is not None:
+        if idx_users is not None:
             w_local = net_local.state_dict()
-            for k in w_locals[idx].keys():
-                w_local[k] = w_locals[idx][k]
-            net_local.load_state_dict(w_local)
+            if idx in idx_users:
+                for k in w_locals[idx].keys():
+                    w_local[k] = w_locals[idx][k]
+            else:
+                for k in w_locals[idx].keys():
+                    if k not in w_glob_keys:
+                        w_local[k] = w_locals[idx][k]
+        else:
+            if w_locals is not None:
+                w_local = net_local.state_dict()
+                for k in w_locals[idx].keys():
+                    w_local[k] = w_locals[idx][k]
+        net_local.load_state_dict(w_local)
         net_local.eval()
         if 'femnist' in args.dataset or 'sent140' in args.dataset:
             # print("---------user----------")
