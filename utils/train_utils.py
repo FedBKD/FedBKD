@@ -1,11 +1,11 @@
-# Modified from: https://github.com/pliang279/LG-FedAvg/blob/master/utils/train_utils.py
+# Modified from: https://github.com/lgcollins/FedRep.git
 
 from torchvision import datasets, transforms
-from models.Nets import CNNCifar, CNNCifar100, RNNSent, MLP
-from utils.sampling import noniid, noniid_global
+from models.Nets import CNNCifar, CNNCifar100, RNNSent, MLP, CNN_FEMNIST
+from utils.sampling import noniid
 import os
 import json
-from log_utils.logger import loss_logger, cfs_mtrx_logger, parameter_logger, data_logger
+from log_utils.logger import data_logger
 
 trans_mnist = transforms.Compose([transforms.ToTensor(),
                                   transforms.Normalize((0.1307,), (0.3081,))])
@@ -31,29 +31,40 @@ def get_data(args):
     if args.dataset == 'mnist':
         dataset_train = datasets.MNIST('data/mnist/', train=True, download=True, transform=trans_mnist)
         dataset_test = datasets.MNIST('data/mnist/', train=False, download=True, transform=trans_mnist)
-        dict_users_train, rand_set_all, global_train = noniid_global(dataset_train, args.num_users, args.shard_per_user,
+        dict_users_train, rand_set_all = noniid(dataset_train, args.num_users, args.shard_per_user,
                                                                      args.num_classes)
         dict_users_test, rand_set_all = noniid(dataset_test, args.num_users, args.shard_per_user, args.num_classes, rand_set_all=rand_set_all, testb=True)
     elif args.dataset == 'cifar10':
         dataset_train = datasets.CIFAR10('data/cifar10', train=True, download=True, transform=trans_cifar10_train)
         dataset_test = datasets.CIFAR10('data/cifar10', train=False, download=True, transform=trans_cifar10_val)
-        dict_users_train, rand_set_all, global_train = noniid_global(dataset_train, args.num_users, args.shard_per_user, args.num_classes)
+        dict_users_train, rand_set_all = noniid(dataset_train, args.num_users, args.shard_per_user, args.num_classes)
         dict_users_test, rand_set_all = noniid(dataset_test, args.num_users, args.shard_per_user, args.num_classes, rand_set_all=rand_set_all, testb=True)
     elif args.dataset == 'cifar100':
         dataset_train = datasets.CIFAR100('data/cifar100', train=True, download=True, transform=trans_cifar100_train)
         dataset_test = datasets.CIFAR100('data/cifar100', train=False, download=True, transform=trans_cifar100_val)
-        dict_users_train, rand_set_all, global_train = noniid_global(dataset_train, args.num_users, args.shard_per_user,
+        dict_users_train, rand_set_all = noniid(dataset_train, args.num_users, args.shard_per_user,
                                                                      args.num_classes)
         dict_users_test, rand_set_all = noniid(dataset_test, args.num_users, args.shard_per_user, args.num_classes, rand_set_all=rand_set_all, testb=True)
     else:
         exit('Error: unrecognized dataset')
     temp = {i: list(tmp) for i, tmp in enumerate(rand_set_all)}
-    print("rand_set_all: \n{}".format(str(temp)))
     data_logger.info("rand_set_all: \n{}".format(str(temp)))
-    print('user 0 label',rand_set_all[0])
-    return dataset_train, dataset_test, dict_users_train, dict_users_test, global_train
+    return dataset_train, dataset_test, dict_users_train, dict_users_test, temp
+
 
 def read_data(train_data_dir, test_data_dir):
+    '''parses data in given train and test data directories
+    assumes:
+    - the data in the input directories are .json files with 
+        keys 'users' and 'user_data'
+    - the set of train set users is the same as the set of test set users
+    
+    Return:
+        clients: list of client ids
+        groups: list of group ids; empty list if none found
+        train_data: dictionary of train data
+        test_data: dictionary of test data
+    '''
     clients = []
     groups = []
     train_data = {}
@@ -98,6 +109,5 @@ def get_model(args):
         net_glob = model = RNNSent(args,'LSTM', 2, 25, 128, 1, 0.5, tie_weights=False).to(args.device)
     else:
         exit('Error: unrecognized model')
-    print(net_glob)
 
     return net_glob
